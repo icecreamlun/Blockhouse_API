@@ -25,42 +25,41 @@ def on_startup():
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """
-    Any client that connects to ws://<host>:8000/ws will enter here. 
-    Store the current websocket in a list and remove it when disconnected.
+    WebSocket endpoint for real-time updates
     """
     await websocket.accept()
     connected_websockets.append(websocket)
     try:
         while True:
-            # wait for the message
-            data = await websocket.receive_text()
-            await websocket.send_text(f"Echo: {data}")
+            # Keep connection alive
+            await websocket.receive_text()
     except WebSocketDisconnect:
         connected_websockets.remove(websocket)
 
 async def notify_all_clients(order: Order):
     """
-    send update to active account
+    Notify all connected clients about new order
     """
+    message = {
+        "action": "new_order",
+        "data": {
+            "id": order.id,
+            "symbol": order.symbol,
+            "price": order.price,
+            "quantity": order.quantity,
+            "order_type": order.order_type,
+        }
+    }
     for ws in connected_websockets:
         try:
-            await ws.send_json({
-                "action": "new_order",
-                "data": {
-                    "id": order.id,
-                    "symbol": order.symbol,
-                    "price": order.price,
-                    "quantity": order.quantity,
-                    "order_type": order.order_type,
-                }
-            })
+            await ws.send_json(message)
         except:
-            pass  
+            connected_websockets.remove(ws)
 
 @app.post("/orders", response_model=OrderRead, status_code=201)
-def create_order(order_data: OrderCreate, background_tasks: BackgroundTasks):
+async def create_order(order_data: OrderCreate, background_tasks: BackgroundTasks):
     """
-    add notify logic
+    Create new order and notify connected clients
     """
     db = get_db()
     new_order = Order(**order_data.dict())
@@ -69,9 +68,9 @@ def create_order(order_data: OrderCreate, background_tasks: BackgroundTasks):
     db.refresh(new_order)
     db.close()
 
-    # async tasks give to background_tasks
-    background_tasks.add_task(asyncio.run, notify_all_clients(new_order))
-
+    # Notify clients about new order
+    await notify_all_clients(new_order)
+    
     return new_order
 
 @app.get("/orders", response_model=List[OrderRead])
