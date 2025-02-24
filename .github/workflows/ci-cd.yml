@@ -25,7 +25,7 @@ jobs:
     
     - name: Run tests
       run: |
-        pytest
+        python -m pytest tests/ -v
 
   build-and-deploy:
     needs: test
